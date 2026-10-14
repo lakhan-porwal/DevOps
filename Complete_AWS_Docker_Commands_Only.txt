@@ -1,0 +1,59 @@
+ssh -i "C:\Users\Mohit porwal\Downloads\demo.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+
+sudo apt update
+sudo apt upgrade -y
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo ${UBUNTU_CODENAME:-$VERSION_CODENAME}) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
+sudo systemctl status docker
+sudo usermod -aG docker "$USER"
+sudo docker --version
+sudo docker compose version
+sudo docker ps
+newgrp docker
+docker ps
+docker compose version
+
+docker login
+docker images
+docker pull tomcat:9.0-jdk17-temurin
+docker tag tomcat:9.0-jdk17-temurin yourusername/tomcat:9.0-jdk17-temurin
+docker push yourusername/tomcat:9.0-jdk17-temurin
+docker pull mysql:8.0
+docker tag mysql:8.0 yourusername/mysql:8.0
+docker push yourusername/mysql:8.0
+
+docker login
+docker pull yourusername/tomcat:9.0-jdk17-temurin
+docker pull yourusername/mysql:8.0
+docker pull yourusername/my-webapp:1.0
+
+docker network create my-network
+docker network ls
+docker network inspect my-network
+
+docker run -d --name db --network my-network -e MYSQL_ROOT_PASSWORD=CHANGE_THIS_STRONG_PASSWORD -e MYSQL_DATABASE=p04 -v mysql-data:/var/lib/mysql mysql:8.0
+docker ps
+docker logs db
+
+docker run -d --name tomcat-container --network my-network -p 8080:8080 yourusername/my-webapp:1.0
+docker ps
+docker ps -a
+docker logs tomcat-container
+docker logs -f tomcat-container
+docker network inspect my-network
+
+docker stop tomcat-container
+docker start tomcat-container
+docker restart tomcat-container
+docker rm tomcat-container
+docker exec -it tomcat-container sh
+docker images
+docker rmi yourusername/my-webapp:1.0
+
+http://YOUR_EC2_PUBLIC_IP:8080/APP_CONTEXT/PAGE_NAME

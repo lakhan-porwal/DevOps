@@ -1,0 +1,616 @@
+COMPLETE AWS + DOCKER INSTALLATION & DEPLOYMENT GUIDE
+====================================================
+
+Purpose:
+--------
+Is guide mein AWS EC2 Ubuntu 24.04 par Docker install karna, Docker Hub se images pull karna,
+aur Tomcat web application ko MySQL ke saath run karna explain kiya gaya hai.
+
+IMPORTANT SECURITY NOTES:
+-------------------------
+1. Neeche diye gaye username, PEM path, EC2 IP, image names aur database settings ko apni
+   actual details ke according replace karna.
+2. Apni .pem private key kisi ke saath share mat karna.
+3. MySQL port 3307 ko 0.0.0.0/0 ke liye publicly open mat karo. Agar Tomcat aur MySQL
+   same Docker network par hain, to application MySQL ko db:3306 se access kar sakti hai.
+4. Docker socket par `chmod 666` mat chalana. Isse security risk hota hai.
+5. EC2 instance ka public IP stop/start ke baad change ho sakta hai, jab tak Elastic IP use na ho.
+
+====================================================
+PART 1: AWS EC2 INSTANCE CREATE KARNA
+====================================================
+
+1. AWS Console mein login karo.
+   # AWS Console se EC2 service open karne ke liye.
+
+2. EC2 -> Instances -> Launch instance par click karo.
+   # Naya virtual server create karne ke liye.
+
+3. Name: docker-server (ya apni pasand ka naam).
+   # Instance ko identify karne ke liye naam.
+
+4. AMI: Ubuntu Server 24.04 LTS select karo.
+   # Ubuntu operating system select hota hai. Free Tier eligibility account, region aur
+   # current AWS offer par depend karti hai; launch se pehle pricing verify karo.
+
+5. Instance type select karo.
+   # Apne account ke eligible/free-tier instance type ko select karo.
+
+6. Key pair -> Create new key pair.
+   # SSH se securely connect hone ke liye key pair create hota hai.
+   # Private key .pem file download hogi. Use safe jagah par rakho.
+
+7. Network settings / Security Group configure karo.
+   # Security Group EC2 ka virtual firewall hai.
+
+   SSH:
+   # Type: SSH, Port: 22
+   # Source: My IP (recommended), taaki sirf tumhare current public IP se SSH ho.
+
+   HTTP:
+   # Type: HTTP, Port: 80
+   # Source: 0.0.0.0/0, agar website ko public access dena hai.
+
+   HTTPS:
+   # Type: HTTPS, Port: 443
+   # Source: 0.0.0.0/0, HTTPS website ke liye. Valid TLS/SSL configuration bhi chahiye.
+
+   Tomcat (temporary testing only):
+   # Type: Custom TCP, Port: 8080
+   # Source: 0.0.0.0/0, agar Tomcat ko directly public internet se test karna hai.
+   # Production mein reverse proxy + HTTPS use karna behtar hai.
+
+   MySQL:
+   # Publicly port 3307 open mat karo.
+   # Agar app aur DB same Docker network par hain, EC2 Security Group mein MySQL port
+   # kholne ki zarurat nahi hai. Docker network ke andar db:3306 use karo.
+
+8. Launch instance par click karo.
+   # EC2 virtual server launch hota hai.
+
+9. Instance status Running aur Status checks 2/2 pass hone ka wait karo.
+   # Confirm karta hai ki instance running hai aur basic AWS health checks pass hain.
+
+10. Launch ke baad Security Group mein inbound rules edit karna:
+    # EC2 -> Instances mein apna instance select karo.
+    # Neeche Details panel mein Security tab open karo.
+    # Security groups ke naam/link par click karo.
+    # Inbound rules tab open karo.
+    # Edit inbound rules par click karo.
+    # Add rule par click karke required rule add karo, phir Save rules karo.
+
+    Rule A - SSH:
+    # Type: SSH | Protocol: TCP | Port: 22 | Source: My IP
+    # SSH login ke liye. My IP recommended hai; 0.0.0.0/0 se SSH sabke liye expose ho sakta hai.
+
+    Rule B - HTTP:
+    # Type: HTTP | Protocol: TCP | Port: 80 | Source: 0.0.0.0/0
+    # Website ko public HTTP access dene ke liye.
+
+    Rule C - HTTPS:
+    # Type: HTTPS | Protocol: TCP | Port: 443 | Source: 0.0.0.0/0
+    # HTTPS traffic ke liye; application/server par TLS/SSL configure hona chahiye.
+
+    Rule D - Tomcat testing (sirf agar direct port 8080 access chahiye):
+    # Type: Custom TCP | Port range: 8080 | Source: 0.0.0.0/0
+    # Browser mein http://YOUR_EC2_PUBLIC_IP:8080 se test karne ke liye.
+    # Production ke liye direct public Tomcat port ke bajay HTTPS reverse proxy prefer karo.
+
+    MySQL rule:
+    # Normally Custom TCP port 3307 ko 0.0.0.0/0 se add MAT karo.
+    # Agar Tomcat aur MySQL same Docker network par hain, app db:3306 se connect karegi,
+    # isliye EC2 Security Group mein MySQL port open karne ki zarurat nahi hai.
+    # Sirf external MySQL access sach mein required ho to narrowly restricted trusted source
+    # (jaise specific IP) use karo; public access avoid karo.
+
+====================================================
+PART 2: WINDOWS SE AWS EC2 PAR SSH CONNECT KARNA
+====================================================
+
+Windows Command Prompt ya PowerShell open karo.
+
+Example:
+
+ssh -i "C:\Users\Mohit porwal\Downloads\demo.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+
+# ssh: Secure Shell connection start karta hai.
+# -i: Private key (.pem) ka path batata hai.
+# ubuntu: Ubuntu EC2 ka default username hai.
+# YOUR_EC2_PUBLIC_IP: AWS console se apne instance ka Public IPv4 address daalo.
+# First connection par host authenticity prompt aaye to IP verify karke hi continue karo.
+
+Agar connection fail ho:
+# 1. Instance Running hai ya nahi check karo.
+# 2. Security Group mein SSH port 22 ka source tumhara current public IP hai ya nahi check karo.
+# 3. PEM file ka path aur username ubuntu check karo.
+# 4. PEM file ko public/shared location par mat rakho.
+
+====================================================
+PART 3: UBUNTU EC2 PAR DOCKER INSTALL KARNA
+====================================================
+
+NOTE:
+# Neeche Docker ke official Ubuntu repository se Docker Engine install hota hai.
+# Commands ko isi order mein run karo.
+
+1. Package list update karo:
+
+sudo apt update
+
+# Ubuntu package repositories se available packages ki latest list download karta hai.
+# Ye installed packages ko khud se upgrade nahi karta.
+
+2. Installed packages upgrade karo:
+
+sudo apt upgrade -y
+
+# Available package updates install karta hai.
+# -y prompts par automatic yes karta hai.
+
+3. Required tools install karo:
+
+sudo apt install -y ca-certificates curl
+
+# ca-certificates: HTTPS certificates verify karne mein madad karta hai.
+# curl: URL se data download karne ke liye tool hai.
+# -y: installation confirmation automatically accept karta hai.
+
+4. APT keyrings directory banao:
+
+sudo install -m 0755 -d /etc/apt/keyrings
+
+# Docker repository ki signing key store karne ke liye directory banata hai.
+# -m 0755 directory permissions set karta hai; -d directory create karta hai.
+
+5. Docker ki official GPG key download karo:
+
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+
+# Docker ki official repository signing key download karta hai.
+# -f: HTTP error par fail, -sS: quiet output ke saath errors, -L: redirects follow.
+# -o: downloaded file ko specified path par save karta hai.
+
+6. GPG key ko readable banao:
+
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# All users ko key file read karne ki permission deta hai.
+# Ye Docker socket permission change nahi karta.
+
+7. Docker official APT repository add karo:
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo ${UBUNTU_CODENAME:-$VERSION_CODENAME}) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# dpkg --print-architecture: system architecture (jaise amd64) batata hai.
+# /etc/os-release: Ubuntu version/codename deta hai.
+# echo repository entry banata hai.
+# tee use entry ko Docker repository list file mein likhta hai.
+# > /dev/null: entry ko terminal par print nahi karta.
+# Isse Ubuntu ko Docker ke official package repository ka pata chalta hai.
+
+8. Package list dobara update karo:
+
+sudo apt update
+
+# Nayi Docker repository se package information download karta hai.
+
+9. Docker install karo:
+
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# docker-ce: Docker Engine service.
+# docker-ce-cli: docker command-line tool.
+# containerd.io: containers ko run/manage karne wala runtime.
+# docker-buildx-plugin: advanced image build features.
+# docker-compose-plugin: `docker compose` command provide karta hai.
+
+10. Docker ko start karo aur boot par auto-start enable karo:
+
+sudo systemctl enable --now docker
+
+# enable: system boot par Docker automatically start hoga.
+# --now: Docker service abhi bhi start ho jayegi.
+
+11. Docker service status check karo:
+
+sudo systemctl status docker
+
+# Docker service active (running) hai ya nahi dikhata hai.
+# Status screen se nikalne ke liye q press karo.
+
+12. Ubuntu user ko Docker group mein add karo:
+
+sudo usermod -aG docker "$USER"
+
+# Current user ko docker group mein add karta hai, taaki normal docker commands chala sake.
+# -aG existing groups ko preserve karte hue docker group add karta hai.
+# NOTE: docker group ke users ko high-level/root-equivalent control mil sakta hai.
+
+13. Docker version check karo:
+
+sudo docker --version
+
+# Installed Docker CLI version dikhata hai.
+
+14. Docker Compose version check karo:
+
+sudo docker compose version
+
+# Docker Compose plugin ka version dikhata hai.
+
+15. Docker daemon test karo:
+
+sudo docker ps
+
+# Running containers ki list dikhata hai. Pehli baar list empty ho sakti hai.
+
+16. Normal user permissions activate karo:
+
+# SSH session se logout karke dobara login karo, ya ye command chalao:
+newgrp docker
+# Current shell mein docker group membership activate karta hai.
+# Uske baad test karo:
+
+docker ps
+
+# Agar sudo ke bina command chalti hai, permissions theek hain.
+
+IMPORTANT:
+# `sudo chmod 666 /var/run/docker.sock` mat chalana.
+# Ye Docker socket ko sabhi local users ke liye writable bana sakta hai aur security risk hai.
+# `sudo systemctl restart docker` aam taur par installation ke baad zaroori nahi hota.
+
+====================================================
+PART 4: APNE WINDOWS COMPUTER PAR DOCKER HUB PAR IMAGE PUSH KARNA
+====================================================
+
+Prerequisites:
+# Docker Desktop installed aur running hona chahiye.
+# Docker Hub account hona chahiye.
+# Example username `yourusername` ko apne Docker Hub username se replace karo.
+
+1. Docker Desktop open karo.
+   # Windows par local Docker Engine aur containers run karne ke liye.
+
+2. Command Prompt / PowerShell mein Docker login karo:
+
+docker login
+
+# Docker Hub mein authenticate karta hai.
+# Prompt aaye to username/password ya supported browser/device login complete karo.
+
+3. Local images check karo:
+
+docker images
+
+# Computer par available Docker images aur tags dikhata hai.
+
+4. Example: Tomcat image download karni ho:
+
+docker pull tomcat:9.0-jdk17-temurin
+
+# Example Tomcat image download karta hai.
+# Apne project ki Java/Tomcat compatibility ke according suitable tag choose karo.
+# `tomcat:latest` par blindly depend karne ke bajay tested version pin karna behtar hai.
+
+5. Image ko Docker Hub username ke saath tag karo:
+
+docker tag tomcat:9.0-jdk17-temurin yourusername/tomcat:9.0-jdk17-temurin
+
+# Existing image ko Docker Hub repository/tag naam deta hai.
+# `yourusername` ko apne Docker Hub username se replace karo.
+
+6. Image Docker Hub par push karo:
+
+
+docker push yourusername/tomcat:9.0-jdk17-temurin
+# Image layers ko Docker Hub repository par upload karta hai.
+# Docker Hub par repository public/private settings check karo.
+
+7. MySQL image push karni ho to:
+
+docker pull mysql:8.0
+
+# Official MySQL 8.0 image download karta hai.
+
+docker tag mysql:8.0 yourusername/mysql:8.0
+
+# MySQL image ko apne Docker Hub repository/tag ke naam se tag karta hai.
+
+docker push yourusername/mysql:8.0
+
+# MySQL image ko Docker Hub par upload karta hai.
+# Official image use kar rahe ho to ise apne account mein push karna mandatory nahi hai;
+# EC2 par directly `docker pull mysql:8.0` bhi kar sakte ho.
+
+PROJECT IMAGE NOTE:
+# Agar tumhari apni web application hai, to sirf base Tomcat image push karne se application
+# automatically deploy nahi hoti.
+# Application WAR file ko Tomcat image mein copy karne wali Dockerfile build karo, ya WAR ko
+# container ke Tomcat webapps folder mein mount/copy karne ka tested setup use karo.
+# Phir apni application image ko tag aur push karo.
+
+====================================================
+PART 5: AWS EC2 PAR DOCKER HUB LOGIN AUR IMAGE PULL
+====================================================
+
+1. Docker Hub login:
+
+docker login
+# EC2 se Docker Hub par authenticate karta hai.
+# Public images pull karne ke liye aksar login zaroori nahi hota.
+# Private images ke liye login/appropriate credentials chahiye.
+# Password ko command line mein plain text ke roop mein mat likho.
+
+2. Tomcat image pull karo:
+
+docker pull yourusername/tomcat:9.0-jdk17-temurin
+# Docker Hub se Tomcat image EC2 par download karta hai.
+# Username aur tag ko apni actual pushed image se replace karo.
+
+3. Downloaded images check karo:
+
+docker images
+# EC2 par locally available images dikhata hai.
+
+====================================================
+PART 6: DOCKER NETWORK CREATE KARNA
+====================================================
+
+1. Network create karo:
+
+docker network create my-network
+# User-defined bridge network create karta hai.
+# Is network se jude containers ek doosre ko container name se access kar sakte hain.
+
+2. Network list check karo:
+
+docker network ls
+# Docker networks ki list dikhata hai.
+
+3. Network details check karna ho:
+
+docker network inspect my-network
+# Network se connected containers aur configuration dikhata hai.
+
+Agar network pehle se bana hai:
+# Error aaye ki network already exists, to dobara create karne ki zarurat nahi.
+# Existing network use kar sakte ho.
+
+====================================================
+PART 7: MYSQL CONTAINER RUN KARNA
+====================================================
+
+IMPORTANT:
+# Example mein `root` password sirf learning/demo ke liye hai.
+# Real project mein strong password/secret use karo.
+# Production ke liye password ko source code, GitHub ya public document mein mat rakho.
+# Data persist karne ke liye Docker volume use karo.
+
+1. MySQL container run karo:
+
+docker run -d --name db --network my-network -e MYSQL_ROOT_PASSWORD=CHANGE_THIS_STRONG_PASSWORD -e MYSQL_DATABASE=p04 -v mysql-data:/var/lib/mysql mysql:8.0
+# docker run: naya container create karke run karta hai.
+# -d: background mein run karta hai.
+# --name db: container ka naam db rakhta hai.
+# --network my-network: application ke saath shared network par connect karta hai.
+# MYSQL_ROOT_PASSWORD: initial MySQL root password set karta hai.
+# MYSQL_DATABASE=p04: first initialization par p04 database create karta hai.
+# -v mysql-data:/var/lib/mysql: named volume mein database files persist karta hai.
+# mysql:8.0: use hone wali image hai.
+# CHANGE_THIS_STRONG_PASSWORD ko actual strong password se replace karo.
+
+2. MySQL container status check karo:
+
+docker ps
+# Running containers ki list dikhata hai.
+
+3. MySQL logs check karo:
+
+docker logs db
+# MySQL startup ya error messages dikhata hai.
+# Database ready hone mein thoda time lag sakta hai.
+
+4. MySQL ko container network ke bahar se access karna zaroori ho tabhi port publish karo.
+# Example (recommended default setup mein is command ki zarurat nahi):
+# -p 127.0.0.1:3307:3306
+# Is mapping se port sirf EC2 ke localhost par accessible hota hai.
+# Public access dene ke liye 0.0.0.0 par bind karna avoid karo.
+# Same Docker network par Tomcat app ko `db:3306` use karna chahiye.
+
+====================================================
+PART 8: TOMCAT WEB APPLICATION CONTAINER RUN KARNA
+====================================================
+
+IMPORTANT:
+# Agar image sirf base Tomcat image hai, to usmein tumhari application WAR file hona zaroori hai.
+# `Rays.html` ya WAR file image mein maujood hai ya nahi, verify karo.
+# Example mein `yourusername/my-webapp:1.0` tumhari application wali image ka naam hai.
+
+1. Application image pull karo:
+
+docker pull yourusername/my-webapp:1.0
+# Docker Hub se tumhari pre-built application image download karta hai.
+
+2. Web application container run karo:
+
+docker run -d --name tomcat-container --network my-network -p 8080:8080 yourusername/my-webapp:1.0
+# -d: background mein container run karta hai.
+# --name tomcat-container: container ka naam set karta hai.
+# --network my-network: MySQL container ke saath same network connect karta hai.
+# -p 8080:8080: EC2 host port 8080 ko container port 8080 se map karta hai.
+# Image mein Tomcat aur deployed web application pehle se configured honi chahiye.
+
+3. Containers check karo:
+
+docker ps
+# Running containers dikhata hai.
+
+docker ps -a
+# Running aur stopped, dono tarah ke containers dikhata hai.
+
+4. Tomcat logs check karo:
+
+docker logs tomcat-container
+# Startup errors, deployment errors aur application logs dekhne ke liye.
+
+5. Browser mein open karo:
+
+http://YOUR_EC2_PUBLIC_IP:8080/APP_CONTEXT/PAGE_NAME
+# YOUR_EC2_PUBLIC_IP ko EC2 ke public IPv4 address se replace karo.
+# APP_CONTEXT/PAGE_NAME ko apni application ke actual context aur page se replace karo.
+# Example URL tabhi chalega jab woh actual deployed application mein exist karta ho.
+
+DATABASE CONNECTION CONFIGURATION:
+----------------------------------
+# Agar Tomcat aur MySQL dono `my-network` par hain, application mein:
+# Database host: db
+# Database port: 3306
+# Database name: p04
+# Username: tumhara configured MySQL user
+# Password: wahi password jo MySQL container ke liye set kiya
+#
+# JDBC URL example:
+# jdbc:mysql://db:3306/p04
+#
+# `localhost` use mat karo: Tomcat container ke andar localhost ka matlab Tomcat container
+# khud hai, MySQL container nahi.
+# Application ki configuration ke mutabik JDBC driver aur database credentials set karo.
+
+====================================================
+PART 9: CONTAINER MANAGEMENT COMMANDS
+====================================================
+
+1. Running containers:
+
+docker ps
+# Sirf running containers dikhata hai.
+
+2. All containers:
+
+docker ps -a
+# Stopped containers samet sab dikhata hai.
+
+3. Container logs:
+
+docker logs tomcat-container
+# Container ke logs dikhata hai.
+
+4. Live logs follow karna:
+
+docker logs -f tomcat-container
+# Naye log messages continuously dikhata hai.
+# Stop following ke liye Ctrl+C press karo; isse normally container stop nahi hota.
+
+5. Container stop karna:
+
+docker stop tomcat-container
+# Container ko gracefully stop karta hai.
+
+6. Stopped container start karna:
+
+docker start tomcat-container
+# Existing stopped container dobara start karta hai.
+
+7. Running container restart karna:
+
+docker restart tomcat-container
+# Container ko stop karke dobara start karta hai.
+
+8. Container remove karna:
+
+docker rm tomcat-container
+# Stopped container remove karta hai.
+# Running container ko pehle stop karo, phir remove karo.
+# Container remove karne se image remove nahi hoti.
+# Persistent named volume alag se rehta hai, jab tak use delete na kiya jaye.
+
+9. Container ke andar shell open karna (agar image mein shell available ho):
+
+docker exec -it tomcat-container sh
+# Running container ke andar interactive shell open karta hai.
+# Exit karne ke liye `exit` type karo.
+
+10. Network inspect:
+
+docker network inspect my-network
+# Network details aur connected containers dikhata hai.
+
+11. Image list:
+
+docker images
+# Local Docker images dikhata hai.
+
+12. Image remove:
+
+docker rmi yourusername/my-webapp:1.0
+# Local image remove karta hai.
+# Agar kisi container mein image use ho rahi hai, pehle related container ko manage karna pad sakta hai.
+# Is command se Docker Hub wali remote image delete nahi hoti.
+
+====================================================
+PART 10: COMMON PROBLEMS AUR SOLUTIONS
+====================================================
+
+Problem: `docker: permission denied`
+Solution:
+# SSH logout karke dobara login karo ya `newgrp docker` run karo.
+# Test: docker ps
+# Agar zarurat ho to temporary `sudo docker ps` se diagnose karo.
+# Docker socket par chmod 666 mat lagao.
+
+Problem: Website open nahi ho rahi.
+Check:
+# 1. `docker ps` se container running hai ya nahi.
+# 2. `docker logs tomcat-container` se Tomcat startup errors.
+# 3. EC2 Security Group mein TCP 8080 allowed hai ya nahi.
+# 4. App ka actual context path aur page name sahi hai ya nahi.
+# 5. Tomcat container ke andar app deploy hui hai ya nahi.
+# 6. Ubuntu firewall ya network configuration traffic block to nahi kar rahi.
+
+Problem: MySQL connection refused.
+Check:
+# 1. `docker ps` se db container running hai ya nahi.
+# 2. `docker logs db` se database ready/error status.
+# 3. Dono containers same `my-network` par hain ya nahi.
+# 4. JDBC URL `jdbc:mysql://db:3306/p04` hai ya nahi.
+# 5. Database username/password aur database name sahi hain ya nahi.
+# 6. MySQL initialization first startup par complete hua hai ya nahi.
+
+Problem: Docker Hub image pull nahi ho rahi.
+Check:
+# 1. Image name, username, tag spelling sahi hai ya nahi.
+# 2. Private repository ke liye `docker login` hua hai ya nahi.
+# 3. Internet/DNS connectivity aur Docker Hub status check karo.
+
+Problem: Port already allocated.
+# Error ka matlab host port kisi aur process/container ne use kiya hua ho sakta hai.
+# `docker ps` aur `sudo ss -lntp` se check karo.
+# Zarurat par host port change karo, example `-p 8081:8080`; phir URL mein port 8081 use karo.
+
+====================================================
+PART 11: QUICK VERIFICATION CHECKLIST
+====================================================
+
+[ ] AWS EC2 instance Running hai.
+[ ] SSH key (.pem) safe hai.
+[ ] Security Group mein SSH sirf trusted IP se allowed hai.
+[ ] Docker installation successful hai.
+[ ] `docker --version` command chalti hai.
+[ ] `docker compose version` command chalti hai.
+[ ] `docker ps` sudo ke bina chalti hai.
+[ ] Docker Hub image EC2 par pull ho gayi.
+[ ] `my-network` create ho gaya.
+[ ] MySQL container ready hai.
+[ ] Tomcat/application container running hai.
+[ ] Application logs mein startup error nahi hai.
+[ ] Browser se application access ho rahi hai.
+[ ] MySQL public port internet ke liye unnecessarily open nahi hai.
+
+====================================================
+END OF GUIDE
+====================================================
+
+Reminder:
+# Apne actual Docker Hub username, image tags, EC2 public IP, app context path aur database
+# credentials use karo. Public demo ke liye bhi passwords ko source code/GitHub mein commit mat karo.
