@@ -1,0 +1,172 @@
+GIT KYA HAI?
+=============
+
+# Git ek Version Control System (VCS) hai. Ye code mein hone wale changes ko track karta hai
+# aur team members ko project par milkar kaam karne mein help karta hai.
+
+
+PART 1: NEW GITHUB REPOSITORY MEIN APNA PROJECT PUSH KARNA
+=========================================================
+
+# Step 1: GitHub par new repository banao.
+# GitHub login -> + -> New repository -> repository name enter karo.
+# README file chahiye to "Add a README file" select karo, phir Create repository.
+# Code -> HTTPS se repository URL copy karo.
+
+
+# Step 2: Apne project ke parent folder mein CMD open karo
+
+cd /d "C:\Users\Mohit porwal\OneDrive\Desktop\GitHub Upload"
+
+
+# Step 3: GitHub repository ko local computer par clone karo
+# URL ko apne actual GitHub repository URL se replace karo
+
+git clone https://github.com/USERNAME/REPOSITORY.git
+
+
+# Step 4: Clone kiye gaye repository folder mein jao
+# REPOSITORY ko actual folder name se replace karo
+
+cd REPOSITORY
+
+
+# Step 5: Apna existing project is cloned folder mein copy-paste karo.
+# Existing `.git` folder ko delete mat karna.
+
+
+# Step 6: Project files staging area mein add karo
+
+git add .
+
+
+# Step 7: Changes ka commit banao
+
+git commit -m "Add project files"
+
+
+# Step 8: Project GitHub par push karo
+
+git push
+
+
+# Step 9: Push ke baad status check karo
+
+git status
+
+
+
+PART 2: BRANCH COMMANDS (BAAD MEIN USE KARNA)
+=============================================
+
+# Current branch ka naam check karo
+
+git branch --show-current
+
+
+# Local branches ki list dekho
+
+git branch
+
+
+# Local aur remote branches ki list dekho
+
+git branch -a
+
+
+# Nayi branch banao aur us par switch karo
+
+git switch -c feature-name
+
+
+# Existing branch par switch karo
+
+git switch main
+
+
+# Nayi branch ko pehli baar GitHub par push karo
+
+git push -u origin feature-name
+
+
+
+PART 3: PULL / LATEST CHANGES (BAAD MEIN USE KARNA)
+===================================================
+
+# GitHub se current branch ki latest changes lao aur integrate karo
+
+git pull
+
+
+# Specific remote main branch se latest changes lao
+
+git pull origin main
+
+
+# Remote se changes download karo, bina current branch mein merge kiye
+
+git fetch origin
+
+
+
+PART 4: DUSRE KA PROJECT CLONE KARNA
+====================================
+
+# GitHub par dusre person ki repository open karo.
+# Code -> HTTPS se repository URL copy karo.
+# Jis parent folder mein project chahiye, wahan CMD open karo.
+
+git clone OTHER_PERSON_REPOSITORY_URL
+
+
+# Clone kiye gaye folder mein jao
+
+cd repository-folder
+
+
+# Project ka status check karo
+
+git status
+
+
+
+PART 5: AAGE KE CHANGES PUSH KARNA
+==================================
+
+# Project folder mein changes ka status check karo
+
+git status
+
+
+# Changed files staging area mein add karo
+
+git add .
+
+
+# Changes ka commit banao
+
+git commit -m "Describe your changes"
+
+
+# Latest remote changes lao (agar remote changes expected hain)
+
+git pull
+
+
+# Apne commits GitHub par push karo
+
+git push
+
+
+
+IMPORTANT NOTES
+===============
+
+# `git clone`: GitHub repository ki local copy download karta hai aur remote set karta hai.
+# `git add .`: Changes ko staging area mein rakhta hai.
+# `git commit`: Staged changes ka local snapshot banata hai.
+# `git push`: Local commits ko GitHub par upload karta hai.
+# `git pull`: Remote changes ko download karke current branch mein integrate karta hai.
+# `git switch`: Branch change karta hai.
+# `USERNAME`, `REPOSITORY`, `OTHER_PERSON_REPOSITORY_URL` aur folder names ko apni details se replace karo.
+# Agar GitHub repository mein README pehle se hai, clone ke baad dobara `git init` chalane ki zarurat nahi.
