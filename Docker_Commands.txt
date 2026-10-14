@@ -1,0 +1,122 @@
+PERSONAL DOCKER DESKTOP COMMANDS
+================================
+
+# Docker Desktop open aur running hona chahiye.
+
+# Docker version check karo
+
+docker --version
+
+
+# Docker Hub mein login karo
+
+docker login
+
+
+# Running containers check karo
+
+docker ps
+
+
+# Running aur stopped containers check karo
+
+docker ps -a
+
+
+# Current project folder mein Dockerfile se image build karo
+
+docker build -t my-webapp:1.0 .
+
+
+# Docker Compose project ho aur compose.yaml / docker-compose.yml file maujood ho, to services build karke start karo
+
+docker compose up -d --build
+
+
+# Containers ki running status check karo
+
+docker ps
+
+
+# Running aur stopped containers dono check karo
+
+docker ps -a
+
+
+# Local Docker images check karo
+
+docker images
+
+
+# Apni locally built image ko Docker Hub username/repository ke saath tag karo
+
+docker tag my-webapp:1.0 yourusername/my-webapp:1.0
+
+
+# Tagged image ko Docker Hub par push karo
+
+docker push yourusername/my-webapp:1.0
+
+
+# Docker Hub se image apne local Docker Desktop par pull karo
+
+docker pull yourusername/my-webapp:1.0
+
+
+# Pulled image ko verify karne ke liye local images check karo
+
+docker images
+
+
+# Pulled image se container run karo (agar app port 8080 par listen karti hai)
+
+docker run -d --name my-webapp-container -p 8080:8080 yourusername/my-webapp:1.0
+
+
+# Container logs check karo
+
+docker logs my-webapp-container
+
+
+# Browser mein local application open karo; actual context path/page use karo
+
+http://localhost:8080/APP_CONTEXT/PAGE_NAME
+
+
+# Container stop karo
+
+docker stop my-webapp-container
+
+
+# Stopped container dobara start karo
+
+docker start my-webapp-container
+
+
+# Container restart karo
+
+docker restart my-webapp-container
+
+
+# Stopped container remove karo
+
+docker rm my-webapp-container
+
+
+# Local images check karo
+
+docker images
+
+
+# Local tagged image remove karo (agar kisi container mein use nahi ho rahi ho)
+
+docker rmi yourusername/my-webapp:1.0
+
+
+IMPORTANT:
+=========
+# `yourusername` ko apne Docker Hub username se replace karo.
+# `my-webapp:1.0` image build hone ke liye current folder mein Dockerfile hona chahiye.
+# `docker compose up -d --build` sirf tab use karo jab Compose file maujood ho.
+# `docker pull` Docker Hub se image download karta hai; build/push workflow ke liye pehle build, tag aur push commands use karo.
+# `APP_CONTEXT/PAGE_NAME` ko apne actual web application path se replace karo.
