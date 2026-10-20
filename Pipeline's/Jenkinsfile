@@ -1,0 +1,119 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'orsproject04'
+        DOCKERHUB_IMAGE = 'lakhanporwal/orsproject04:latest'
+
+        AWS_HOST = '54.87.174.177'
+        AWS_USER = 'ubuntu'
+    }
+
+    stages {
+
+        stage('1. Git Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/lakhan-porwal/ORSProject04-Complete.git'
+            }
+        }
+
+        stage('2. Build WAR') {
+            steps {
+                dir('ORSProject04') {
+                    bat 'mvn clean package'
+                }
+            }
+        }
+
+        stage('3. Build Docker Image') {
+            steps {
+                dir('ORSProject04') {
+                    bat 'docker build -t %DOCKER_IMAGE%:latest .'
+                }
+            }
+        }
+
+        stage('4. Tag Docker Image') {
+            steps {
+                bat 'docker tag %DOCKER_IMAGE%:latest %DOCKERHUB_IMAGE%'
+            }
+        }
+
+        stage('5. Push to Docker Hub') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-creds-new',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                        if errorlevel 1 exit /b 1
+
+                        docker push %DOCKERHUB_IMAGE%
+                        if errorlevel 1 exit /b 1
+
+                        docker logout
+                    '''
+                }
+            }
+        }
+
+        stage('6. Deploy on AWS EC2') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'aws-ec2-ssh',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker pull %DOCKERHUB_IMAGE% && sudo docker start mysql-container && sudo docker network connect ors-network mysql-container 2>/dev/null || true"
+                    '''
+
+                    bat '''
+                        @echo off
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker rm -f ors-container 2>/dev/null || true"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker run -d --restart unless-stopped --name ors-container --network ors-network -p 8080:8080 %DOCKERHUB_IMAGE%"
+                        if errorlevel 1 exit /b 1
+                    '''
+                }
+            }
+        }
+
+        stage('7. Verify Deployment') {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'aws-ec2-ssh',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    bat '''
+                        @echo off
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker ps"
+                        if errorlevel 1 exit /b 1
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'ORSProject04 CI/CD pipeline completed successfully.'
+        }
+        failure {
+            echo 'Pipeline failed. Check Console Output for the failing stage.'
+        }
+    }
+}
