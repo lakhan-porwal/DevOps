@@ -1,0 +1,16 @@
+JOB: AWS-Docker-Install
+NOTE: Reconstructed from the successful Docker installation described in the conversation. Review before running.
+pipeline {
+    agent any
+    stages {
+        stage('Install Docker on AWS') {
+            steps {
+                bat 'ssh -i "C:/Users/Mohit porwal/Downloads/ORSProject04-key.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@3.87.152.16 "sudo apt-get update && sudo apt-get install -y docker.io && sudo systemctl enable --now docker && sudo docker --version"'
+            }
+        }
+    }
+    post {
+        success { echo 'SUCCESS: Docker installed/verified on AWS.' }
+        failure { echo 'FAILED: Check Console Output.' }
+    }
+}

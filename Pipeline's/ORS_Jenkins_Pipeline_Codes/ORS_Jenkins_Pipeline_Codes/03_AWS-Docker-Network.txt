@@ -1,0 +1,16 @@
+JOB: AWS-Docker-Network
+NOTE: Reconstructed from the network setup described in the conversation.
+pipeline {
+    agent any
+    stages {
+        stage('Create Docker Network on AWS') {
+            steps {
+                bat 'ssh -i "C:/Users/Mohit porwal/Downloads/ORSProject04-key.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@3.87.152.16 "sudo docker network inspect ors-network >/dev/null 2>&1 || sudo docker network create ors-network; sudo docker network inspect ors-network"'
+            }
+        }
+    }
+    post {
+        success { echo 'SUCCESS: ors-network exists on AWS.' }
+        failure { echo 'FAILED: Check Console Output.' }
+    }
+}

@@ -1,0 +1,15 @@
+JOB: AWS-Pull-DockerHub-Images
+pipeline {
+    agent any
+    stages {
+        stage('Connect to AWS and Pull Images') {
+            steps {
+                bat 'ssh -i "C:/Users/Mohit porwal/Downloads/ORSProject04-key.pem" -o StrictHostKeyChecking=no -o ConnectTimeout=15 ubuntu@3.87.152.16 "sudo docker pull lakhanporwal/webapp:latest && sudo docker pull lakhanporwal/mysql:latest && sudo docker images"'
+            }
+        }
+    }
+    post {
+        success { echo 'SUCCESS: Both Docker Hub images pulled on AWS!' }
+        failure { echo 'FAILED: Check Console Output.' }
+    }
+}
