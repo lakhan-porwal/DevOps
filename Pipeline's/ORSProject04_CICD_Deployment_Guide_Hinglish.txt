@@ -1,6 +1,7 @@
 ORSProject04 CI/CD DEPLOYMENT GUIDE
 GitHub -> Jenkins (Windows) -> Docker Desktop -> Docker Hub -> AWS EC2
 Language: Hinglish
+IMPORTANT: EC2 SSH connection, Docker installation, Docker network setup, MySQL startup/setup aur application deployment Jenkins pipeline ke through chalenge; PowerShell mein manual SSH steps sirf troubleshooting ke liye hain.
 
 ============================================================
 1. PROJECT FLOW
@@ -79,110 +80,87 @@ E. MySQL port 3308 (optional)
 - MySQL ko public internet par expose mat karo. App Docker network ke through MySQL se connect hoti hai.
 
 ============================================================
-4. SSH SE EC2 CONNECT KARNA
+4. EC2 SSH CONNECT JENKINS KE THROUGH
 ============================================================
 
-Windows PowerShell open karo. Apni .pem file ka actual path aur EC2 ka current public IP use karo.
+Windows PowerShell se manual SSH command run karna is deployment ka required step nahi hai.
+Jenkins EC2 se SSH ke through connect karega, using Jenkins credential ID: aws-ec2-ssh.
 
-ssh -i "C:\path\to\ORS-deploy-key.pem" ubuntu@YOUR_EC2_PUBLIC_IP
+Jenkins -> Manage Jenkins -> Credentials mein ye credential pehle se create karo:
+- Kind: SSH Username with private key
+- Username: ubuntu
+- Private key: ORS-deploy-key.pem ki private key contents
+- ID: aws-ec2-ssh
 
-First connection par prompt aaye to yes type karo.
+Jenkinsfile ke "Connect to AWS and Prepare EC2" stage mein ye SSH test hota hai:
+echo AWS_SSH_OK
 
-Successful connection ke baad prompt kuch aisa dikhega:
-ubuntu@ip-172-31-16-104:~$
-
-Useful commands:
-sudo docker --version
-sudo docker ps -a
-sudo docker images
+AWS_HOST ko Jenkinsfile mein EC2 ke CURRENT public IPv4 address se replace karo.
+EC2 Running hona chahiye, aur security group mein SSH port 22 tumhare Jenkins host ke outbound access ke liye reachable hona chahiye.
+StrictHostKeyChecking=no first-time automation ke liye host prompt ko skip karta hai; production mein host key ko verify/pin karna safer hai.
 
 ============================================================
-5. EC2 PAR DOCKER INSTALL KARNA
+5. EC2 PAR DOCKER INSTALL JENKINS KE THROUGH
 ============================================================
 
-SSH se Ubuntu mein connect hone ke baad commands ek-ek karke run karo:
+Manual SSH terminal mein commands chalane ke bajay Jenkins pipeline ka "Connect to AWS and Prepare EC2" stage ye commands EC2 par chalata hai:
 
 sudo apt-get update
-
 sudo apt-get install -y docker.io
-
 sudo systemctl enable --now docker
-
 sudo docker --version
 
-Docker service check:
-sudo systemctl status docker --no-pager
+Pipeline stage fail ho to Jenkins Console Output mein isi stage ka error dekho.
+EC2 par Ubuntu package repositories aur internet access available hona chahiye.
 
 ============================================================
-6. DOCKER NETWORK CREATE KARNA
+6. DOCKER NETWORK JENKINS KE THROUGH CREATE KARNA
 ============================================================
 
-Application ka JDBC URL:
+Application JDBC URL:
 jdbc:mysql://mysql:3306/p04
 
 Application container ko Docker network par MySQL ka hostname "mysql" resolve karna chahiye.
 
-Network create karo:
-sudo docker network create ors-network
+Jenkinsfile ke "Ensure Docker Network and MySQL" stage mein network ko idempotently create/check kiya jata hai:
+sudo docker network inspect ors-network || sudo docker network create ors-network
 
-Agar network pehle se exist karta hai to dobara create ya delete mat karo.
-
-Network check:
-sudo docker network ls
+Agar network pehle se hai, use delete nahi karna. Database records preserve karne ke liye existing network/volume ko delete mat karna.
 
 ============================================================
-7. MYSQL SETUP AUR DATA PRESERVE KARNA
+7. MYSQL JENKINS KE THROUGH SETUP KARNA AUR DATA PRESERVE KARNA
 ============================================================
 
-Existing details:
+Existing setup:
 - Database: p04
 - Container: mysql-container
-- Image: lakhanporwal/mysql:8.0
-- Network: ors-network
+- Docker network: ors-network
+- Persistent volume: mysql-data
 
-Pehle existing setup check karo:
-
-sudo docker ps -a
-sudo docker volume ls
-sudo docker network inspect ors-network
-
-Agar existing mysql-container aur database data present hai to use sirf deployment ke liye delete ya recreate mat karo.
-
-FRESH DATABASE SETUP ONLY:
-Persistent volume create karo:
-sudo docker volume create mysql-data
-
-MySQL container run karo:
-sudo docker run -d --restart unless-stopped --name mysql-container --network ors-network --network-alias mysql -p 3308:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=p04 -v mysql-data:/var/lib/mysql lakhanporwal/mysql:8.0
+Jenkinsfile ke "Ensure Docker Network and MySQL" stage mein:
+1. ors-network exist na kare to create hota hai.
+2. mysql-data volume exist na kare to create hota hai.
+3. mysql-container pehle se exist karta hai to usko recreate nahi kiya jata.
+4. Container stopped ho to start kiya jata hai.
+5. Existing container ko network se connect karne ki koshish hoti hai.
 
 IMPORTANT:
-- Upar wali command sirf fresh database setup ke liye hai.
-- Existing mysql-container ke upar ise mat chalana.
-- Existing container ya volume delete karne se database data loss ho sakta hai.
-- Production mein strong passwords aur secure secrets use karo.
+- Pipeline first-time setup ke liye mysql:8.0 official image use karta hai. Agar tumhara existing container custom image lakhanporwal/mysql:8.0 se bana tha, existing container ko preserve karo; pipeline use replace nahi karti.
+- Existing MySQL container/volume ko manually delete mat karna. Existing database data ko protect karna zaroori hai.
+- Database root password existing container mein pehle se set hai to MYSQL_ROOT_PASSWORD environment variable us password ko change nahi karta.
+- Fresh database ke liye default example root password "root" hai. Production mein strong password use karo aur credentials ko Jenkins Credentials mein rakho.
+- MySQL setup complete hone ke baad verify karo ki p04 database aur required tables present hain.
+- Agar network alias "mysql" pehle se attached hai, network connect command duplicate-alias error de sakti hai; aise case mein Console Output check karke network inspect karo. Existing network settings ko blindly change mat karo.
 
-Agar existing MySQL container network se connected nahi hai:
-sudo docker network connect --alias mysql ors-network mysql-container
-
-Agar container stopped hai:
-sudo docker start mysql-container
-
-Databases check:
+MySQL check commands (zaroorat par Jenkins ke SSH command stage mein add/run kiye ja sakte hain):
 sudo docker exec mysql-container mysql -uroot -proot -e "SHOW DATABASES;"
-
-Expected database: p04
-
-Connection test:
 sudo docker exec mysql-container mysql -uroot -proot -D p04 -e "SELECT 1 AS connection_test;"
-
-App container banne ke baad hostname check:
-sudo docker exec ors-container getent hosts mysql
 
 ============================================================
 8. APPLICATION DATABASE CONFIGURATION
 ============================================================
 
-Deployed WAR ke andar system.properties mein database settings ye honi chahiye:
+Deployed WAR ke andar system.properties mein ye values honi chahiye:
 
 url=jdbc:mysql://mysql:3306/p04
 driver=com.mysql.cj.jdbc.Driver
@@ -207,31 +185,26 @@ Hostname "mysql" hona chahiye, "localhost" nahi, kyunki application aur MySQL al
 9. JENKINS CREDENTIALS CONFIGURE KARNA
 ============================================================
 
-Jenkins URL:
-http://localhost:8085
+Jenkins URL: http://localhost:8085
 
 A. Docker Hub credential:
-1. Manage Jenkins -> Credentials open karo.
-2. Add Credentials select karo.
-3. Kind: Username with password.
-4. Username: lakhanporwal
-5. Password: Docker Hub Access Token.
-6. ID: docker-creds-new
+1. Manage Jenkins -> Credentials -> Add Credentials.
+2. Kind: Username with password.
+3. Username: lakhanporwal.
+4. Password: Docker Hub Access Token (Read & Write permission).
+5. ID: docker-creds-new.
 
 Token create karne ke liye:
 https://app.docker.com/settings/personal-access-tokens
 
-Token ko password ki tarah secret rakho. Token GitHub par commit mat karo.
-
 B. AWS SSH credential:
-1. Add Credentials select karo.
+1. Add Credentials.
 2. Kind: SSH Username with private key.
-3. Username: ubuntu
+3. Username: ubuntu.
 4. Private key: ORS-deploy-key.pem ki private key contents.
-5. ID: aws-ec2-ssh
+5. ID: aws-ec2-ssh.
 
-Jenkinsfile mein inhi credential IDs ka use hoga.
-Private keys aur passwords GitHub par upload mat karo.
+Private keys aur tokens ko GitHub par commit mat karo.
 
 ============================================================
 10. JENKINS AUR WINDOWS REQUIREMENTS
@@ -281,15 +254,22 @@ docker build -t orsproject04:latest .
 12. COMPLETE JENKINSFILE
 ============================================================
 
-Is Jenkinsfile ko ORSProject04/Jenkinsfile mein save kar sakte ho, agar yahi tumhare repository mein exact path hai.
+Ye Jenkinsfile GitHub checkout, Maven build, Docker image build/push,
+AWS SSH connection, EC2 par Docker installation, Docker network/MySQL
+setup, application deployment aur container verification Jenkins se karta hai.
 
-IMPORTANT BEFORE RUNNING:
-- AWS_HOST ko EC2 ke current public IP se replace karo.
-- Jenkins credentials docker-creds-new aur aws-ec2-ssh pehle se configure hon.
-- EC2 par Docker installed aur running ho.
-- MySQL container aur ors-network pehle se correctly configured hon.
-- Ye pipeline app container replace karne ke liye hai; MySQL container/volume delete nahi karna.
-- Network alias already attached hone par network connect command fail ho sakti hai. Neeche diya gaya SSH command is case mein error handling ko reliably handle nahi karta. Production ya important data wale server par use karne se pehle deployment stage ko safer commands mein split aur test karna chahiye.
+BEFORE RUNNING:
+- AWS_HOST ko current EC2 public IPv4 address se replace karo.
+- docker-creds-new aur aws-ec2-ssh Jenkins credentials configure hon.
+- Docker Desktop Windows par running ho.
+- Existing MySQL container/volume ko delete mat karna.
+- EC2 security group mein SSH port 22 tumhare Jenkins host se reachable ho.
+- MySQL ke liye existing data/password settings verify karna.
+
+NOTE: Ye starter pipeline hai. Agar existing MySQL container ka network
+alias pehle se attached hai, network-connect command fail ho sakti hai.
+Console Output verify karo. Important production data ke saath run karne
+se pehle test environment mein validate karo.
 
 pipeline {
     agent any
@@ -311,7 +291,13 @@ pipeline {
         stage('Build WAR') {
             steps {
                 dir('ORSProject04') {
-                    bat 'mvn clean package'
+                    bat '''
+                        set "JAVA_HOME=C:\\Program Files\\Java\\jdk-21.0.12"
+                        set "PATH=%JAVA_HOME%\\bin;C:\\apache-maven-3.10.0-bin-maven-3.10.0\\bin;%PATH%"
+                        call mvn clean package
+                        if errorlevel 1 exit /b 1
+                        if not exist target\\ORSProject04.war exit /b 1
+                    '''
                 }
             }
         }
@@ -330,15 +316,13 @@ pipeline {
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Docker Hub Login and Push') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-creds-new',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-creds-new',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
                     bat '''
                         @echo off
                         echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
@@ -351,36 +335,84 @@ pipeline {
             }
         }
 
-        stage('Deploy to AWS') {
+        stage('Connect to AWS and Prepare EC2') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'aws-ec2-ssh',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-ec2-ssh',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
                     bat '''
                         @echo off
-                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker pull %DOCKERHUB_IMAGE% && sudo docker start mysql-container && sudo docker network connect --alias mysql ors-network mysql-container 2>/dev/null || true && sudo docker rm -f ors-container 2>/dev/null || true && sudo docker run -d --restart unless-stopped --name ors-container --network ors-network -p 8080:8080 %DOCKERHUB_IMAGE%"
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "echo AWS_SSH_OK"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo apt-get update && sudo apt-get install -y docker.io && sudo systemctl enable --now docker && sudo docker --version"
                         if errorlevel 1 exit /b 1
                     '''
                 }
             }
         }
 
-        stage('Verify Containers') {
+        stage('Ensure Docker Network and MySQL') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'aws-ec2-ssh',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    )
-                ]) {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-ec2-ssh',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
                     bat '''
                         @echo off
-                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker ps"
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker network inspect ors-network >/dev/null 2>&1 || sudo docker network create ors-network"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker volume inspect mysql-data >/dev/null 2>&1 || sudo docker volume create mysql-data"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker container inspect mysql-container >/dev/null 2>&1 || sudo docker run -d --restart unless-stopped --name mysql-container --network ors-network --network-alias mysql -p 3308:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=p04 -v mysql-data:/var/lib/mysql mysql:8.0"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker start mysql-container"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker network connect --alias mysql ors-network mysql-container 2>/dev/null || true"
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Application to AWS') {
+            steps {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-ec2-ssh',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    bat '''
+                        @echo off
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker pull %DOCKERHUB_IMAGE%"
+                        if errorlevel 1 exit /b 1
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker rm -f ors-container 2>/dev/null || true"
+
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker run -d --restart unless-stopped --name ors-container --network ors-network -p 8080:8080 %DOCKERHUB_IMAGE%"
+                        if errorlevel 1 exit /b 1
+                    '''
+                }
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                withCredentials([sshUserPrivateKey(
+                    credentialsId: 'aws-ec2-ssh',
+                    keyFileVariable: 'SSH_KEY',
+                    usernameVariable: 'SSH_USER'
+                )]) {
+                    bat '''
+                        @echo off
+                        ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no %SSH_USER%@%AWS_HOST% "sudo docker ps && sudo docker logs --tail 50 ors-container"
+                        if errorlevel 1 exit /b 1
                     '''
                 }
             }
@@ -389,10 +421,10 @@ pipeline {
 
     post {
         success {
-            echo 'ORSProject04 CI/CD pipeline completed successfully.'
+            echo 'Pipeline stages completed. Browser test is still required.'
         }
         failure {
-            echo 'Pipeline failed. Review the failing stage in Console Output.'
+            echo 'Pipeline failed. Open Console Output and inspect the first failed stage.'
         }
     }
 }
